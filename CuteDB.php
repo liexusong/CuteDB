@@ -122,21 +122,21 @@ class CuteDB
 		return $this->validateDB();
 	}
 
-	private function getBucketIndex($key)
+	private function getIndexOffset($key)
 	{
 		$hash = crc32($key);
 		if ($hash < 0) {
 			$hash = -$hash;
 		}
 
-		return $hash % CuteDB::CUTEDB_ENTRIES;
+		$index = $hash % CuteDB::CUTEDB_ENTRIES;
+
+		return CuteDB::CUTEDB_HEADER_SIZE + $index * 4;
 	}
 
 	public function set($key, $value)
 	{
-		$index = $this->getBucketIndex($key);
-
-		$indexoffset = CuteDB::CUTEDB_HEADER_SIZE + $index * 4;
+		$indexoffset = $this->getIndexOffset($key);
 
 		if (fseek($this->_idxfile, $indexoffset, SEEK_SET) == -1) {
 			return false;
@@ -248,9 +248,7 @@ class CuteDB
 
 	public function get($key)
 	{
-		$index = $this->getBucketIndex($key);
-
-		$indexoffset = CuteDB::CUTEDB_HEADER_SIZE + $index * 4;
+		$indexoffset = $this->getIndexOffset($key);
 
 		if (fseek($this->_idxfile, $indexoffset, SEEK_SET) == -1) {
 			return false;
@@ -304,9 +302,7 @@ class CuteDB
 
 	public function delete($key)
 	{
-		$index = $this->getBucketIndex($key);
-
-		$indexoffset = CuteDB::CUTEDB_HEADER_SIZE + $index * 4;
+		$indexoffset = $this->getIndexOffset($key);
 
 		if (fseek($this->_idxfile, $indexoffset, SEEK_SET) == -1) {
 			return false;
