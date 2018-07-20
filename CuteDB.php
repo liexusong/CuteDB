@@ -149,7 +149,7 @@ class CuteDB
         return [$offset, $datoff, $datlen, $delete, $keyval];
     }
 
-    public function set($key, $value)
+    public function set($key, $value, $replace = false)
     {
         $indexoffset = $this->getIndexOffset($key);
 
@@ -195,6 +195,10 @@ class CuteDB
             }
         }
 
+        if ($update && !$replace) {
+            return false;
+        }
+
         if (!$update || $datlen < strlen($value)) {
             if (fseek($this->_datfile, 0, SEEK_END) == -1) {
                 return false;
@@ -221,6 +225,7 @@ class CuteDB
         }
 
         $keyItem .= $key;
+
         if (strlen($keyItem) > 128) {
             return false;
         }
@@ -370,8 +375,8 @@ class CuteDB
         }
 
         $keyItem = pack('L3C2', $offset, $datoff, $datlen, strlen($key), 1);
-
         $keyItem .= $key;
+
         if (strlen($keyItem) > 128) {
             return false;
         }
