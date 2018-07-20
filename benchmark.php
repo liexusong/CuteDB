@@ -20,3 +20,5 @@ for ($i = 0; $i < 100000; $i++) {
 }
 
 printf("get benchmark: %5f\n", microtime(true) - $time);
+
+$db->close();
