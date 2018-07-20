@@ -482,6 +482,12 @@ class CuteDB
         return [$keyval, $datval];
     }
 
+    public function flush()
+    {
+        fflush($this->_idxfile);
+        fflush($this->_datfile);
+    }
+
     public function close()
     {
         if ($this->_idxfile) {
