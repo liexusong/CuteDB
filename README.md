@@ -1,7 +1,7 @@
 # CuteDB
 A single PHP file. Tiny DB implements in PHP using HashTable algorithm.
 
-example:
+Example:
 ========
 ```php
 <?php
@@ -19,3 +19,7 @@ echo $db->get('test_key'); // Get key's value
 $db->close(); // Close DB
 
 ```
+
+Principle
+=========
+![avatar](https://raw.githubusercontent.com/liexusong/CuteDB/master/CuteDB.jpg)
