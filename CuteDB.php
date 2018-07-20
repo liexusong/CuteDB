@@ -260,7 +260,7 @@ class CuteDB
                 return false;
             }
 
-            $this->_lastoff = $this->_iterator = ftell($this->_idxfile);
+            $this->_lastoff = ftell($this->_idxfile);
 
             if (fwrite($this->_idxfile, $keyItem) != 128) {
                 return false;
