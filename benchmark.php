@@ -21,4 +21,17 @@ for ($i = 0; $i < 100000; $i++) {
 
 printf("get benchmark: %5f\n", microtime(true) - $time);
 
+$time = microtime(true);
+
+$db->reset();
+
+while (true) {
+    $peer = $db->next();
+    if (!$peer) {
+        break;
+    }
+}
+
+printf("iterator benchmark: %5f\n", microtime(true) - $time);
+
 $db->close();
