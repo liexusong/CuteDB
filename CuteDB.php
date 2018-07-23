@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Tiny DB implements in PHP using HashTable algorithm
+ * Tiny DataBase implements in PHP using HashTable algorithm
  * @author: Liexusong <liexusong@qq.com>
  */
 
@@ -164,16 +164,25 @@ class CuteDB
 
         $keyval = substr($item, 22, $keylen);
 
-        return [$offset, $preoff, $nexoff, $datoff, $datlen, $delete, $keyval];
+        return [
+            $offset,
+            $preoff,
+            $nexoff,
+            $datoff,
+            $datlen,
+            $delete,
+            $keyval,
+        ];
     }
 
-    private function packItem($offset, $preoff,
-        $nexoff, $datoff, $datlen, $keylen, $deleted, $key)
-    {
+    private function packItem(
+        $offset, $preoff, $nexoff, $datoff,
+        $datlen, $keylen, $delete, $keyval
+    ) {
         $keyItem = pack('L5C2', $offset, $preoff, $nexoff,
-                        $datoff, $datlen, $keylen, $deleted);
+                        $datoff, $datlen, $keylen, $delete);
 
-        $keyItem .= $key;
+        $keyItem .= $keyval;
 
         if (strlen($keyItem) > 128) {
             return false;
@@ -229,9 +238,9 @@ class CuteDB
             $datoff = $package[3];
             $datlen = $package[4];
             $delete = $package[5];
-            $cmpkey = $package[6];
+            $keyval = $package[6];
 
-            if ($cmpkey == $key) {
+            if ($keyval == $key) {
                 $update = true;
                 break;
             }
@@ -240,6 +249,8 @@ class CuteDB
         if ($update && !$replace) {
             return false;
         }
+
+        /* store data and get offset */
 
         if (!$update || $datlen < strlen($value)) {
             if (fseek($this->_datfile, 0, SEEK_END) == -1) {
@@ -258,30 +269,33 @@ class CuteDB
             return false;
         }
 
+        /* store key index and get offset */
+
+        if (!$update) {
+            $offset = $headoffset;
+            $preoff = $this->_tailoff;
+            $nexoff = 0;
+        }
+
         $keylen = strlen($key);
 
-        if ($update) {
-            $keyItem = $this->packItem($offset, $preoff, $nexoff,
-                                       $datoff, $datlen, $keylen, 0, $key);
-
-        } else {
-            $keyItem = $this->packItem($headoffset, $this->_tailoff,
-                                       0, $datoff, $datlen, $keylen, 0, $key);
-        }
+        $keyItem = $this->packItem($offset, $preoff, $nexoff,
+                                   $datoff, $datlen, $keylen, 0, $key);
 
         if (!$keyItem) {
             return false;
         }
 
-        if (!$update) {
+        if (!$update) { /* new key */
+
+            $tailoff = $this->_tailoff; /* prev key offset */
 
             if (fseek($this->_idxfile, 0, SEEK_END) == -1) {
                 return false;
             }
 
-            $tailoff = $this->_tailoff;
-
             $this->_tailoff = ftell($this->_idxfile);
+
             if (!$this->_headoff) {
                 $this->_headoff = $this->_tailoff;
                 $this->_iterator = $this->_headoff;
@@ -405,9 +419,9 @@ class CuteDB
             $datoff = $package[3];
             $datlen = $package[4];
             $delete = $package[5];
-            $cmpkey = $package[6];
+            $keyval = $package[6];
 
-            if ($cmpkey == $key) {
+            if ($keyval == $key) {
                 $found = true;
                 break;
             }
@@ -464,9 +478,9 @@ class CuteDB
             $datoff = $package[3];
             $datlen = $package[4];
             $delete = $package[5];
-            $cmpkey = $package[6];
+            $keyval = $package[6];
 
-            if ($cmpkey == $key) {
+            if ($keyval == $key) {
                 $found = true;
                 break;
             }
@@ -476,8 +490,10 @@ class CuteDB
             return false;
         }
 
-        $keyItem = $this->packItem($offset, $preoff, $nexoff,
-                                   $datoff, $datlen, strlen($key), 1, $key);
+        $keyItem = $this->packItem($offset, $preoff,
+                                   $nexoff, $datoff,
+                                   $datlen, strlen($key),
+                                   1, $key);
 
         if (!$keyItem) {
             return false;
