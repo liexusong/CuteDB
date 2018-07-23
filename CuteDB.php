@@ -490,10 +490,11 @@ class CuteDB
             return false;
         }
 
-        $keyItem = $this->packItem($offset, $preoff,
-                                   $nexoff, $datoff,
-                                   $datlen, strlen($key),
-                                   1, $key);
+        $keylen = strlen($key);
+        $delete = 1;
+
+        $keyItem = $this->packItem($offset, $preoff, $nexoff, $datoff,
+                                   $datlen, $keylen, $delete, $key);
 
         if (!$keyItem) {
             return false;
