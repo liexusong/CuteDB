@@ -1,8 +1,7 @@
 <?php
 
 /**
- * Tiny DB implements in PHP
- * Using HashTable algorithm
+ * Tiny DB implements in PHP using HashTable algorithm
  * @author: Liexusong <liexusong@qq.com>
  */
 
@@ -10,11 +9,13 @@ class CuteDB
 {
     const CUTEDB_ENTRIES = 1048576;
     const CUTEDB_VERSION = 2;
-    const CUTEDB_HEADER_SIZE = 16;
+    const CUTEDB_HEADER_SIZE = 20;
+    const CUTEDB_LINK_OFFSET = 12;
 
     private $_idxfile = null;
     private $_datfile = null;
-    private $_lastoff = 0;
+    private $_headoff = 0;
+    private $_tailoff = 0;
     private $_iterator = null;
 
     private function initDB()
@@ -24,12 +25,13 @@ class CuteDB
          * 4 bytes for "CUTE"
          * 4 bytes for version
          * 4 bytes for hash bucket entries
-         * 4 bytes for link list header
+         * 4 bytes for link list head
+         * 4 bytes for link list tail
          */
-        $header = pack('C4L3', 67, 85, 84, 69,
+        $header = pack('C4L4', 67, 85, 84, 69,
                        CuteDB::CUTEDB_VERSION,
                        CuteDB::CUTEDB_ENTRIES,
-                       0);
+                       0, 0);
 
         if (fwrite($this->_idxfile, $header) != CuteDB::CUTEDB_HEADER_SIZE) {
             return false;
@@ -73,7 +75,7 @@ class CuteDB
             return false;
         }
 
-        $sign = unpack('L3', substr($header, 4));
+        $sign = unpack('L4', substr($header, 4));
 
         if ($sign[1] != CuteDB::CUTEDB_VERSION ||
             $sign[2] != CuteDB::CUTEDB_ENTRIES)
@@ -81,7 +83,10 @@ class CuteDB
             return false;
         }
 
-        $this->_lastoff = $this->_iterator = $sign[3];
+        $this->_headoff = $sign[3];
+        $this->_tailoff = $sign[4];
+
+        $this->_iterator = $this->_headoff;
 
         return true;
     }
@@ -144,21 +149,44 @@ class CuteDB
 
     private function unpackItem($item)
     {
-        $package = unpack('L4', substr($item, 0, 16));
+        $package = unpack('L5', substr($item, 0, 20));
 
         $offset = $package[1];
         $preoff = $package[2];
-        $datoff = $package[3];
-        $datlen = $package[4];
+        $nexoff = $package[3];
+        $datoff = $package[4];
+        $datlen = $package[5];
 
-        $package = unpack('C2', substr($item, 16, 2));
+        $package = unpack('C2', substr($item, 20, 2));
 
         $keylen = $package[1];
         $delete = $package[2];
 
-        $keyval = substr($item, 18, $keylen);
+        $keyval = substr($item, 22, $keylen);
 
-        return [$offset, $preoff, $datoff, $datlen, $delete, $keyval];
+        return [$offset, $preoff, $nexoff, $datoff, $datlen, $delete, $keyval];
+    }
+
+    private function packItem($offset, $preoff,
+        $nexoff, $datoff, $datlen, $keylen, $deleted, $key)
+    {
+        $keyItem = pack('L5C2', $offset, $preoff, $nexoff,
+                        $datoff, $datlen, $keylen, $deleted);
+
+        $keyItem .= $key;
+
+        if (strlen($keyItem) > 128) {
+            return false;
+        }
+
+        if (strlen($keyItem) < 128) {
+            $zero = pack('x');
+            for ($i = 128 - strlen($keyItem); $i > 0; $i--) {
+                $keyItem .= $zero;
+            }
+        }
+
+        return $keyItem;
     }
 
     public function set($key, $value, $replace = false)
@@ -197,10 +225,11 @@ class CuteDB
 
             $offset = $package[0];
             $preoff = $package[1];
-            $datoff = $package[2];
-            $datlen = $package[3];
-            $delete = $package[4];
-            $cmpkey = $package[5];
+            $nexoff = $package[2];
+            $datoff = $package[3];
+            $datlen = $package[4];
+            $delete = $package[5];
+            $cmpkey = $package[6];
 
             if ($cmpkey == $key) {
                 $update = true;
@@ -232,26 +261,16 @@ class CuteDB
         $keylen = strlen($key);
 
         if ($update) {
-            $keyItem = pack('L4C2',
-                            $offset, $preoff, $datoff, $datlen, $keylen, 0);
+            $keyItem = $this->packItem($offset, $preoff, $nexoff,
+                                       $datoff, $datlen, $keylen, 0, $key);
 
         } else {
-            $keyItem = pack('L4C2',
-                            $headoffset, $this->_lastoff,
-                            $datoff, $datlen, $keylen, 0);
+            $keyItem = $this->packItem($headoffset, $this->_tailoff,
+                                       0, $datoff, $datlen, $keylen, 0, $key);
         }
 
-        $keyItem .= $key;
-
-        if (strlen($keyItem) > 128) {
+        if (!$keyItem) {
             return false;
-        }
-
-        if (strlen($keyItem) < 128) {
-            $zero = pack('x');
-            for ($i = 128 - strlen($keyItem); $i > 0; $i--) {
-                $keyItem .= $zero;
-            }
         }
 
         if (!$update) {
@@ -260,17 +279,25 @@ class CuteDB
                 return false;
             }
 
-            $this->_lastoff = ftell($this->_idxfile);
+            $tailoff = $this->_tailoff;
+
+            $this->_tailoff = ftell($this->_idxfile);
+            if (!$this->_headoff) {
+                $this->_headoff = $this->_tailoff;
+                $this->_iterator = $this->_headoff;
+            }
 
             if (fwrite($this->_idxfile, $keyItem) != 128) {
                 return false;
             }
 
+            /* update bucket index */
+
             if (fseek($this->_idxfile, $indexoffset, SEEK_SET) == -1) {
                 return false;
             }
 
-            $lastoff = pack('L', $this->_lastoff);
+            $lastoff = pack('L', $this->_tailoff);
 
             if (fwrite($this->_idxfile, $lastoff) != 4) {
                 return false;
@@ -278,13 +305,52 @@ class CuteDB
 
             /* update link list */
 
-            if (fseek($this->_idxfile,
-                CuteDB::CUTEDB_HEADER_SIZE - 4, SEEK_SET) == -1)
-            {
+            if ($tailoff > 0) { /* update last node next pointer */
+
+                if (fseek($this->_idxfile, $tailoff, SEEK_SET) == -1) {
+                    return false;
+                }
+
+                $item = fread($this->_idxfile, 128);
+                if (strlen($item) != 128) {
+                    return false;
+                }
+
+                $package = $this->unpackItem($item);
+
+                $offset = $package[0];
+                $preoff = $package[1];
+                $nexoff = $package[2];
+                $datoff = $package[3];
+                $datlen = $package[4];
+                $delete = $package[5];
+                $keyval = $package[6];
+                $keylen = strlen($keyval);
+
+                $keyItem = $this->packItem($offset, $preoff, $this->_tailoff,
+                                           $datoff, $datlen, $keylen, $delete,
+                                           $keyval);
+
+                if (!$keyItem) {
+                    return false;
+                }
+
+                if (fseek($this->_idxfile, $tailoff, SEEK_SET) == -1) {
+                    return false;
+                }
+
+                if (fwrite($this->_idxfile, $keyItem) != 128) {
+                    return false;
+                }
+            }
+
+            if (fseek($this->_idxfile, CuteDB::CUTEDB_LINK_OFFSET) == -1) {
                 return false;
             }
 
-            if (fwrite($this->_idxfile, $lastoff) != 4) {
+            $link = pack('L2', $this->_headoff, $this->_tailoff);
+
+            if (fwrite($this->_idxfile, $link) != 8) {
                 return false;
             }
 
@@ -335,10 +401,11 @@ class CuteDB
 
             $offset = $package[0];
             $preoff = $package[1];
-            $datoff = $package[2];
-            $datlen = $package[3];
-            $delete = $package[4];
-            $cmpkey = $package[5];
+            $nexoff = $package[2];
+            $datoff = $package[3];
+            $datlen = $package[4];
+            $delete = $package[5];
+            $cmpkey = $package[6];
 
             if ($cmpkey == $key) {
                 $found = true;
@@ -393,10 +460,11 @@ class CuteDB
 
             $offset = $package[0];
             $preoff = $package[1];
-            $datoff = $package[2];
-            $datlen = $package[3];
-            $delete = $package[4];
-            $cmpkey = $package[5];
+            $nexoff = $package[2];
+            $datoff = $package[3];
+            $datlen = $package[4];
+            $delete = $package[5];
+            $cmpkey = $package[6];
 
             if ($cmpkey == $key) {
                 $found = true;
@@ -408,20 +476,11 @@ class CuteDB
             return false;
         }
 
-        $keyItem = pack('L4C2',
-                        $offset, $preoff, $datoff, $datlen, strlen($key), 1);
+        $keyItem = $this->packItem($offset, $preoff, $nexoff,
+                                   $datoff, $datlen, strlen($key), 1, $key);
 
-        $keyItem .= $key;
-
-        if (strlen($keyItem) > 128) {
+        if (!$keyItem) {
             return false;
-        }
-
-        if (strlen($keyItem) < 128) {
-            $zero = pack('x');
-            for ($i = 128 - strlen($keyItem); $i > 0; $i--) {
-                $keyItem .= $zero;
-            }
         }
 
         if (fseek($this->_idxfile, $curroffset, SEEK_SET) == -1) {
@@ -435,9 +494,14 @@ class CuteDB
         return true;
     }
 
-    public function reset()
+    public function moveHead()
     {
-        $this->_iterator = $this->_lastoff;
+        $this->_iterator = $this->_headoff;
+    }
+
+    public function moveTail()
+    {
+        $this->_iterator = $this->_tailoff;
     }
 
     public function next()
@@ -459,10 +523,54 @@ class CuteDB
 
         $offset = $package[0];
         $preoff = $package[1];
-        $datoff = $package[2];
-        $datlen = $package[3];
-        $delete = $package[4];
-        $keyval = $package[5];
+        $nexoff = $package[2];
+        $datoff = $package[3];
+        $datlen = $package[4];
+        $delete = $package[5];
+        $keyval = $package[6];
+
+        $this->_iterator = $nexoff;
+
+        if ($delete) {
+            return $this->next();
+        }
+
+        if (fseek($this->_datfile, $datoff) == -1) {
+            return false;
+        }
+
+        $datval = fread($this->_datfile, $datlen);
+        if (strlen($datval) != $datlen) {
+            return false;
+        }
+
+        return [$keyval, $datval];
+    }
+
+    public function prev()
+    {
+        if (!$this->_iterator) {
+            return false;
+        }
+
+        if (fseek($this->_idxfile, $this->_iterator) == -1) {
+            return false;
+        }
+
+        $item = fread($this->_idxfile, 128);
+        if (strlen($item) != 128) {
+            return false;
+        }
+
+        $package = $this->unpackItem($item);
+
+        $offset = $package[0];
+        $preoff = $package[1];
+        $nexoff = $package[2];
+        $datoff = $package[3];
+        $datlen = $package[4];
+        $delete = $package[5];
+        $keyval = $package[6];
 
         $this->_iterator = $preoff;
 

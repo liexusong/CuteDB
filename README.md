@@ -16,6 +16,13 @@ $db->set('test_key', 'test_value'); // Set key value map
 
 echo $db->get('test_key'); // Get key's value
 
+$db->moveHead();
+
+while (true) {
+    $next = $db->next();
+    echo $next[0].":".$next[1];
+}
+
 $db->close(); // Close DB
 
 ```

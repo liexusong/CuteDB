@@ -3,6 +3,7 @@
 include('CuteDB.php');
 
 $db = new CuteDB();
+
 $db->open('test');
 
 $time = microtime(true);
@@ -23,11 +24,20 @@ printf("get benchmark: %5f\n", microtime(true) - $time);
 
 $time = microtime(true);
 
-$db->reset();
+$db->moveHead();
 
 while (true) {
-    $peer = $db->next();
-    if (!$peer) {
+    $next = $db->next();
+    if (!$next) {
+        break;
+    }
+}
+
+$db->moveTail();
+
+while (true) {
+    $prev = $db->prev();
+    if (!$prev) {
         break;
     }
 }
