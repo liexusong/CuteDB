@@ -435,7 +435,7 @@ class CuteDB
             return false;
         }
 
-        return fread($this->_datfile, $datlen);
+        return $datlen < 1 ? '' : fread($this->_datfile, $datlen);
     }
 
     public function delete($key)
